@@ -75,13 +75,17 @@ fn main() -> Result<(), failure::Error> {
 
     loop {
         ui::draw(&mut terminal, &app)?;
-        match rx.recv()? {
-            Event::Input(key) => {
-                // TODO: handle key events once they are supported by crossterm
-                app.on_key(key);
-            }
-            Event::Tick => {
-                app.on_tick();
+        loop {
+            match rx.try_recv() {
+                Ok(Event::Input(key)) => {
+                    // TODO: handle key events once they are supported by crossterm
+                    app.on_key(key);
+                }
+                Ok(Event::Tick) => {
+                    app.on_tick();
+                }
+                Err(mpsc::TryRecvError::Empty) => { break; }
+                Err(err) => { return Err(failure::Error::from(err)) }
             }
         }
         if app.should_quit {

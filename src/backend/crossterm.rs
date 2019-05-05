@@ -1,4 +1,5 @@
 use std::io;
+use std::io::Write;
 
 use crate::backend::Backend;
 use crate::buffer::Cell;
@@ -135,6 +136,14 @@ impl Backend for CrosstermBackend {
         let mut last_y = 0;
         let mut last_x = 0;
         let mut first = true;
+
+        let colored_terminal: crossterm::TerminalColor = self.crossterm.color();
+        let scr = if self.alternate_screen.is_some() {
+            &mut self.alternate_screen.as_mut().unwrap().screen
+        } else {
+            self.screen.as_mut().unwrap()
+        };
+        let mut color_dirty = false;
         for (x, y, cell) in content {
             if y != last_y || x != last_x + 1 || first {
                 cursor.goto(x, y).map_err(convert_error)?;
@@ -142,17 +151,27 @@ impl Backend for CrosstermBackend {
             }
             last_x = x;
             last_y = y;
-            let mut s = self.crossterm.style(&cell.symbol);
+            if color_dirty && (cell.style.fg == Color::Reset || cell.style.bg == Color::Reset) {
+                colored_terminal.reset().map_err(convert_error)?;
+                color_dirty = false;
+            }
             if let Some(color) = cell.style.fg.into() {
-                s = s.with(color)
+                // let clr = format!(
+                //     "\x1B[{}m",
+                //     colored_terminal.color_value(color, ColorType::Foreground)
+                // );
+                colored_terminal.set_fg(color).map_err(convert_error)?;
+                color_dirty = true;
             }
             if let Some(color) = cell.style.bg.into() {
-                s = s.on(color)
+                colored_terminal.set_bg(color).map_err(convert_error)?;
+                color_dirty = true;
             }
-            s.object_style.attrs = cell.style.modifier.into();
-
-            self.crossterm.paint(s).map_err(convert_error)?;
+            scr.write(cell.symbol.as_bytes())?;
         }
+        scr.flush()?;
+        
+        colored_terminal.reset().map_err(convert_error)?;
         Ok(())
     }
 }
