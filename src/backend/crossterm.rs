@@ -132,10 +132,11 @@ impl Backend for CrosstermBackend {
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
-        let cursor = self.crossterm.cursor();
+        // let cursor = self.crossterm.cursor();
         let mut last_y = 0;
         let mut last_x = 0;
         let mut first = true;
+        let mut buffer = String::with_capacity(100);
 
         let colored_terminal: crossterm::TerminalColor = self.crossterm.color();
         let scr = if self.alternate_screen.is_some() {
@@ -146,25 +147,25 @@ impl Backend for CrosstermBackend {
         let mut color_dirty = false;
         for (x, y, cell) in content {
             if y != last_y || x != last_x + 1 || first {
-                cursor.goto(x, y).map_err(convert_error)?;
+                scr.write(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes())?;
+                // cursor.goto(x, y).map_err(convert_error)?;
                 first = false;
             }
             last_x = x;
             last_y = y;
             if color_dirty && (cell.style.fg == Color::Reset || cell.style.bg == Color::Reset) {
-                colored_terminal.reset().map_err(convert_error)?;
+                scr.write("\x1b[0m".as_bytes())?;
+                // colored_terminal.reset().map_err(convert_error)?;
                 color_dirty = false;
             }
             if let Some(color) = cell.style.fg.into() {
-                // let clr = format!(
-                //     "\x1B[{}m",
-                //     colored_terminal.color_value(color, ColorType::Foreground)
-                // );
-                colored_terminal.set_fg(color).map_err(convert_error)?;
+                scr.write(color_value(color, true, &mut buffer).as_bytes())?;
+                // colored_terminal.set_fg(color).map_err(convert_error)?;
                 color_dirty = true;
             }
             if let Some(color) = cell.style.bg.into() {
-                colored_terminal.set_bg(color).map_err(convert_error)?;
+                scr.write(color_value(color, false, &mut buffer).as_bytes())?;
+                // colored_terminal.set_bg(color).map_err(convert_error)?;
                 color_dirty = true;
             }
             scr.write(cell.symbol.as_bytes())?;
@@ -175,6 +176,47 @@ impl Backend for CrosstermBackend {
         Ok(())
     }
 }
+
+    fn color_value(color: crossterm::Color, foreground: bool, mut dest: &mut String) -> &mut String {
+        dest.clear();
+
+        match foreground {
+            true => dest.push_str("\x1b[38;"),
+            false => dest.push_str("\x1b[48;"),
+        }
+
+        let rgb_val: String;
+
+        let color_val = match color {
+            crossterm::Color::Black => "5;0m",
+            crossterm::Color::Red => "5;9m",
+            crossterm::Color::DarkRed => "5;1m",
+            crossterm::Color::Green => "5;10m",
+            crossterm::Color::DarkGreen => "5;2m",
+            crossterm::Color::Yellow => "5;11m",
+            crossterm::Color::DarkYellow => "5;3m",
+            crossterm::Color::Blue => "5;12m",
+            crossterm::Color::DarkBlue => "5;4m",
+            crossterm::Color::Magenta => "5;13m",
+            crossterm::Color::DarkMagenta => "5;5m",
+            crossterm::Color::Cyan => "5;14m",
+            crossterm::Color::DarkCyan => "5;6m",
+            crossterm::Color::Grey => "5;15m",
+            crossterm::Color::White => "5;7m",
+
+            crossterm::Color::Rgb { r, g, b } => {
+                rgb_val = format!("2;{};{};{}m", r, g, b);
+                rgb_val.as_str()
+            }
+            crossterm::Color::AnsiValue(val) => {
+                rgb_val = format!("5;{}m", val);
+                rgb_val.as_str()
+            }
+        };
+
+        dest.push_str(color_val);
+        dest
+    }
 
 impl From<Color> for Option<crossterm::Color> {
     fn from(color: Color) -> Option<crossterm::Color> {
